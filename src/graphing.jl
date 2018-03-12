@@ -57,18 +57,22 @@ function facecolor(s::Array{String,1})
 end
 
 function draw(WT::WoodedTriangulation;
-	          rotation=π,
+	      rotation=0,
               linewidth=1.0,
               pointsize=3.0,
               pointcolor="black",
               fillfaces=false,
               labels=true,
               coords=schnyder_coords(WT),
-	          fontsize=12,
+	      fontsize=12,
               kwargs...)
     ϕ(z) = cis(rotation)*(z[1] + 0.5*z[2] + im * sqrt(3)/2 * z[2])
     n = length(WT.P) - 3
-    colors = Dict([((a,b),c) for (a,b,c) in edges(WT)])
+    colors = Dict((a,b)=>c for (a,b,c) in edges(WT))
+    for i=1:3
+        colors[(n+mod1(i,3),n+mod1(i+1,3))] = :gray
+        colors[(n+mod1(i+1,3),n+mod1(i,3))] = :gray
+    end
     grlist = AsyPlots.GraphicElement2D[]
     # EDGES:
     for (tree,color) in zip((WT.bluetree,WT.redtree,WT.greentree),
@@ -98,7 +102,7 @@ function draw(WT::WoodedTriangulation;
                 [AsyPlots.Polygon2D([ϕ(coords[k]) for k in fc.elements];
                     pen=AsyPlots.Pen(linewidth=linewidth),
                     fillpen=AsyPlots.Pen(color=facecolor(sort([colors[p] for p in pairs(fc)]))))
-                        for fc in interiorfaces(faces(WT.P;outeredge=(n+1,1)))])
+                        for fc in interiorfaces(faces(WT.P;outeredge=(n+1,n+3)))])
     end
     return AsyPlots.Plot(grlist;kwargs...)
 end

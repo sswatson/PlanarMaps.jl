@@ -19,3 +19,8 @@ P = PlanarMap([
 draw(P)
 ```
 ![](images/planarmap.svg)
+
+```julia
+draw(UWT(20),labels=false,fillfaces=true)
+```
+![](images/UWT.svg)
