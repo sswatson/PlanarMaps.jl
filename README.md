@@ -21,6 +21,6 @@ draw(P)
 ![](images/planarmap.svg)
 
 ```julia
-draw(UWT(20),labels=false,fillfaces=true)
+draw(UWT(20),fillfaces=true,linecolor="black")
 ```
 ![](images/UWT.svg)
