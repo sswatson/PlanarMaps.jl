@@ -23,7 +23,7 @@ F = face(P,1,2)
 W = UWT(100)
 
 draw(W)
-draw(W,labels=false,fillfaces=true,pointsize=1e-6)
+draw(W,fillfaces=true,linecolor="black") 
 draw(P)
 
 
