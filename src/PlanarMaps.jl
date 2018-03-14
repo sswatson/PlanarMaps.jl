@@ -2,26 +2,26 @@ __precompile__(true)
 
 module PlanarMaps
 
-import AsyPlots
+import AsyPlots,
+       DataStructures
 
 export NeighborCycle, CyclicRange, to,
        PlanarMap,
        Face,
        rotate, over,
-       cw, ccw, ccwrange, insertccw, insertcw, add_edge!,
+       cw, ccw, ccwrange, insertccw, insertcw, add_edge!, delete_edge!,
        edges, face, faces, neighbors,
        interiorfaces, outerface,
        triangulation,
-       RootedTree, root, downwardneighbors,
-       ancestormap, isblue, isred, isgreen, child,
-       vertices, interiorvertices, treesum, backsum,
-       WoodedTriangulation,
+       RootedTree, root,
+       isblue, isred, isgreen,
+       vertices, interiorvertices,
+       WoodedTriangulation, PartialWoodedTriangulation, shell!, shell,
        outerface, blueroot, redroot, greenroot,
-       schnyderwood,
-       schnydercoordinates,
+       schnyderwood, allwoods,
        schnyder_blue, schnyder_red, schnyder_green, schnyder_coords,
-       EmbeddedMap, draw,
-       UWT, schnyderaverage
+       EmbeddedMap, draw, GraphPenSet,
+       UWT
 
 """
     NeighborCycle(elements::Vector)
@@ -29,9 +29,13 @@ export NeighborCycle, CyclicRange, to,
 A circular permutation of distinct integers, representing
 the (counterclockwise) neighbors of a vertex in a `PlanarMap`
 """
-struct NeighborCycle{T<:Integer}
+mutable struct NeighborCycle{T<:Integer}
     elements::Vector{T}
     lookup::Dict{T,T}
+end
+
+function remap!(N::NeighborCycle)
+    N.lookup = Dict(map(reverse,enumerate(N.elements)))
 end
 
 function NeighborCycle(elements::Vector)
@@ -105,6 +109,19 @@ function add_edge!(P::PlanarMap{T},
     end
 end
 
+import Base.filter!
+Base.filter!(f::Function,N::NeighborCycle) = Base.filter!(f,N.elements)
+
+function delete_edge!(P::PlanarMap{T},
+                      i::T,
+                      j::T) where T<:Integer
+    if ~(i in neighbors(P,j) || j in neighbors(P,i))
+        error("No edge to delete")
+    end
+    filter!(x->x≠j,P.nbs[i])
+    filter!(x->x≠i,P.nbs[j])
+    foreach(remap!,(P.nbs[i],P.nbs[j]))
+end
 """
     OrientedPlanarMap(nbs::Vector{NeighborCycle{T}},
                       outgoing::Vector{Set{T}}) where T<:Integer
@@ -378,7 +395,7 @@ function triangulation(RNG::AbstractRNG,
 end
 
 function triangulation(P::PlanarMap;kwargs...)
-    triangulation(MersenneTwister(0),P;kwargs...) 
+    triangulation(MersenneTwister(0),P;kwargs...)
 end
 
 import Base.in

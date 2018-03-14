@@ -1,19 +1,14 @@
 
 struct EmbeddedMap{T<:Integer}
     P::PlanarMap{T}
-    locs::Dict{T,<:Tuple{<:Real,<:Real}}
-end
-
-function EmbeddedMap(P::PlanarMap,
-                     locs::Array{<:Tuple{<:Real,<:Real}})
-    EmbeddedMap(P,Dict(k=>v for (k,v) in enumerate(locs)))
+    locs::Array{<:Tuple{<:Real,<:Real}}
 end
 
 function EmbeddedMap(RNG::AbstractRNG,
                      P::PlanarMap;
                      outeredge=(1,neighbors(P,1)[1]))
-    T = triangulation(P,outeredge=outeredge)
-    WT = schnyderwood(T)
+    T = triangulation(RNG,P,outeredge=outeredge)
+    WT = schnyderwood(RNG,T,outface=face(T,outeredge...))
     n = length(P)
     map((a,b)->ϕ(a,b,n),EmbeddedMap(P,schnyder_coords(WT)))
 end
@@ -21,88 +16,142 @@ end
 EmbeddedMap(P::PlanarMap;kwargs...) =
         EmbeddedMap(MersenneTwister(0),P;kwargs...)
 
+length(E::EmbeddedMap) = length(E.P)
+
 import Base.map
 function map(f::Function,E::EmbeddedMap)
-    EmbeddedMap(E.P,Dict(k=>f(v...) for (k,v) in E.locs))
+    EmbeddedMap(E.P,[f(a,b) for (a,b) in E.locs])
 end
 
 ϕ(a::Real,b::Real,n::Real) = tuple(([1 1/2; 0 sqrt(3)/2]*[a; b]/n)...)
 ϕ(a::Real,b::Real) = ϕ(a,b,1)
+ϕ(t::NTuple{2}) = ϕ(t...)
+
+function bbox_size(E::EmbeddedMap)
+    My = maximum(y for (x,y) in E.locs)
+    my = minimum(y for (x,y) in E.locs)
+    Mx = maximum(x for (x,y) in E.locs)
+    mx = minimum(x for (x,y) in E.locs)
+    max(Mx-mx,My-my)
+end
+
+struct GraphPenSet
+    pointpen
+    diskpen
+    labelpen
+    edgepen
+    facepen
+    pointpens
+    diskpens
+    labelpens
+    edgepens
+    facepens
+end
+
+function GraphPenSet(;kwargs...)
+    args = DataStructures.OrderedDict(
+            :pointpen=>AsyPlots.Pen(color="DarkGreen"),
+            :diskpen=>AsyPlots.Pen(color="Black"),
+            :labelpen=>AsyPlots.Pen(fontsize=12,color="White"),
+            :edgepen=>AsyPlots.Pen(color="Navy",linewidth=1.2),
+            :facepen=>AsyPlots.Pen("LightBlue"),
+            :pointpens=>nothing,
+            :diskpens=>nothing,
+            :labelpens=>nothing,
+            :edgepens=>nothing,
+            :facepens=>nothing)
+
+    merge!(args,Dict(kwargs))
+    GraphPenSet(values(args)...)
+end
+
+for name in (:point,:disk,:label,:edge,:face)
+    namepen = Symbol(string(name)*"pen")
+    namepens = Symbol(string(name)*"pens")
+    @eval function $namepen(G::GraphPenSet,k)
+        if method_exists(getindex,map(typeof,(G.$namepens,k)))
+            G.$namepens[k]
+        elseif !isempty(methods(G.$namepens))
+            G.$namepens(k)
+        else
+            G.$namepen
+        end
+    end
+end
 
 function draw(E::EmbeddedMap;
               outeredge=(1,neighbors(E.P,1)[1]),
-              edgepen=AsyPlots.Pen(),
-              pointpen=AsyPlots.Pen(),
-              labels=true,
-              fontsize=12)
-    Edges = [AsyPlots.Path([E.locs[i],E.locs[j]],pen=edgepen) for (i,j) in edges(E.P)]
-    if labels
-        Disks = [AsyPlots.Circle(E.locs[i],fontsize/250,
-                fillpen=AsyPlots.Pen(color="white")) for i in 1:length(E.P)]
-        Labels = [AsyPlots.Label(string(i),E.locs[i];
-                pen=AsyPlots.Pen(fontsize=fontsize)) for i in 1:length(E.P)]
-        AsyPlots.Plot(vcat(Edges,Disks,Labels))
+              drawpoints=true,
+              drawedges=true,
+              fillfaces=false,
+              drawlabels=true,
+              graphpenset=GraphPenSet(),
+              kwargs...)
+
+    if length(kwargs) > 0
+        G = GraphPenSet(;kwargs...)
     else
-        Points = [AsyPlots.Point(E.locs[i],pen=pointpen) for i in 1:length(E.P)]
-        AsyPlots.Plot(vcat(Edges,Points))
+        G = graphpenset
     end
+    s = bbox_size(E) # for sizing the disk that the label goes in
+    grlist = AsyPlots.GraphicElement2D[]
+    if fillfaces
+        append!(grlist,[AsyPlots.Polygon2D([E.locs[i] for i in fc],
+                            pen=AsyPlots.NoPen(),
+                            fillpen=facepen(G,fc)) for fc in interiorfaces(
+                                faces(E.P;outeredge=outeredge))])
+    end
+    if drawedges
+        append!(grlist,[AsyPlots.Path([E.locs[i],E.locs[j]],pen=edgepen(G,(i,j)))
+                                                    for (i,j) in edges(E.P)])
+    end
+    if drawlabels
+        append!(grlist,vcat([[AsyPlots.Circle(E.locs[i],
+                                              s*labelpen(G,i).fontsize/650,
+                                     pen=diskpen(G,i),
+                                     fillpen=pointpen(G,i)),
+                              AsyPlots.Label(string(i),E.locs[i];
+                                     pen=labelpen(G,i))] for i in 1:length(E.P)]...))
+    elseif drawpoints
+        append!(grlist,[AsyPlots.Point(E.locs[i],
+                                  pen=pointpen(G,i)) for i in 1:length(E.P)])
+    end
+    AsyPlots.Plot(grlist)
 end
 
-function draw(P::PlanarMap;kwargs...)
-    draw(EmbeddedMap(P);kwargs...)
-end
-
-function facecolor(s::Array{String,1})
-    return sum([1/3 * AsyPlots.NamedColor(c) for c in s])
+function draw(P::PlanarMap;outeredge=(1,neighbors(P,1)[1]),kwargs...)
+    draw(EmbeddedMap(P;outeredge=outeredge);kwargs...)
 end
 
 function draw(WT::WoodedTriangulation;
-	      rotation=0,
-              linewidth=1.0,
-              pointsize=3.0,
-              pointcolor="black",
-              fillfaces=false,
-              labels=true,
-              coords=schnyder_coords(WT),
-	      fontsize=12,
+              rotation=0,
+              linewidth=10/length(WT),
+              pointsize=3,
+              pointcolor=AsyPlots.NamedColor(0.65,0.65,0.65),
+              linecolor="default",
+              labelcolor="black",
+              labelsize=max(1,floor(log10(length(WT))))*min(12,max(144/length(WT))),
               kwargs...)
-    ϕ(z) = cis(rotation)*(z[1] + 0.5*z[2] + im * sqrt(3)/2 * z[2])
-    n = length(WT.P) - 3
-    colors = Dict((a,b)=>c for (a,b,c) in edges(WT))
-    for i=1:3
-        colors[(n+mod1(i,3),n+mod1(i+1,3))] = :gray
-        colors[(n+mod1(i+1,3),n+mod1(i,3))] = :gray
+    ASYCOLORS =     Dict(zip((:blue, :red, :green,     :gray),
+        AsyPlots.NamedColor.(("Navy","Red","DarkGreen","Gray"))))
+    edgedict = Dict((e.tail,e.head)=>e.color for e in edges(WT))
+    edgepens(t) = linecolor == "default" ?
+                        AsyPlots.Pen(linewidth=linewidth,
+                                     color=ASYCOLORS[edgedict[t]]) :
+                                AsyPlots.Pen(linewidth=linewidth,
+                                             color=linecolor)
+    function facepens(F::Face)
+        AsyPlots.Pen(color=sum(1/3 * AsyPlots.NamedColor(
+                            string(edgedict[e])) for e in edges(F)))
     end
-    grlist = AsyPlots.GraphicElement2D[]
-    # EDGES:
-    for (tree,color) in zip((WT.bluetree,WT.redtree,WT.greentree),
-                            ("Navy","Red","DarkGreen"))
-        for k=1:n
-            push!(grlist,AsyPlots.Path2D([ϕ(coords[k]),
-                    ϕ(coords[tree[k]])];pen=AsyPlots.Pen(
-                    color=AsyPlots.NamedColor(color),linewidth=linewidth)))
-        end
-    end
-    # POINTS:
-    if labels
-        append!(grlist,vcat([[AsyPlots.Circle2D(ϕ(coords[k]),n*fontsize/250;
-                pen=AsyPlots.Pen(linewidth=linewidth),
-                fillpen=AsyPlots.Pen(color="white")),
-                AsyPlots.Label2D("$k",ϕ(coords[k]);
-                pen=AsyPlots.Pen(linewidth=pointsize,
-                        color=AsyPlots.NamedColor(pointcolor),
-                        fontsize=fontsize))] for k=1:length(coords)]...))
-    else
-        append!(grlist,[AsyPlots.Point2D(ϕ(coords[k]);
-                pen=AsyPlots.Pen(linewidth=pointsize,
-                color=AsyPlots.NamedColor(pointcolor))) for k=1:length(coords)])
-    end
-    if fillfaces
-        append!(grlist,
-                [AsyPlots.Polygon2D([ϕ(coords[k]) for k in fc.elements];
-                    pen=AsyPlots.Pen(linewidth=linewidth),
-                    fillpen=AsyPlots.Pen(color=facecolor(sort([colors[p] for p in pairs(fc)]))))
-                        for fc in interiorfaces(faces(WT.P;outeredge=(n+1,n+3)))])
-    end
-    return AsyPlots.Plot(grlist;kwargs...)
+    GPS = GraphPenSet(;edgepens=edgepens,
+                       facepens=facepens,
+                       diskpen=AsyPlots.Pen(linewidth=10/length(WT)),
+                       pointpen=AsyPlots.Pen(linewidth=pointsize,
+                                             color=pointcolor),
+                       labelpen=AsyPlots.Pen(fontsize=labelsize,color=labelcolor))
+    draw(EmbeddedMap(WT.P,
+         map((t->reim(cis(rotation)*(t[1]+im*t[2])))∘ϕ,schnyder_coords(WT))),
+         outeredge=(blueroot(WT),greenroot(WT));
+         graphpenset=GPS,kwargs...)
 end

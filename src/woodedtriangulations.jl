@@ -81,9 +81,46 @@ isred(WT::WoodedTriangulation{T},i::T,j::T) where T<:Integer =
 isgreen(WT::WoodedTriangulation{T},i::T,j::T) where T<:Integer =
     i ∉ outerface(WT) && ancestor(WT.greentree,i) == j
 
-function downwardneighbors(N::NeighborCycle{T},v::T) where T<:Integer
-    p = position(N,v)
-    N[to(p+1,p-1)]
+struct ColoredEdge
+    tail::Int64
+    head::Int64
+    color::Symbol
+end
+
+function edges(WT::WoodedTriangulation)
+    interior_edges = ColoredEdge[]
+    for (d,c) in zip((WT.bluetree,WT.redtree,WT.greentree),(:blue,:red,:green))
+        append!(interior_edges,vcat([[ColoredEdge(k,d[k],c),
+                                 ColoredEdge(d[k],k,c)] for k in keys(d)]...))
+    end
+    roots = [f(WT) for f in (blueroot,redroot,greenroot)]
+    vcat(interior_edges,
+    [ColoredEdge(a,b,:gray) for a in roots for b in roots if a ≠ b])
+end
+
+function faces(WT::WoodedTriangulation{T}) where T<:Integer
+    n = length(WT.P)-3
+    all_edges = edges(WT)
+    colors = Dict((E.tail,E.head)=>E.color for E in all_edges);
+    interior_edges = filter(E->E.color ≠ :gray, all_edges)
+    found_edges = Set{NTuple{2,T}}()
+    all_faces = Face{T}[]
+    u = blueroot(WT)
+    v = cw(WT.P,u,greenroot(WT))
+    while length(found_edges) < length(interior_edges)
+        if colors[(u,v)] == :blue
+            (u,v) = v,cw(WT.P,v,u)
+        else
+            (u,v) = u,cw(WT.P,u,v)
+        end
+        if (u,v) in found_edges
+            continue
+        end
+        f = face(WT.P,u,v)
+        push!(found_edges,edges(f)...)
+        push!(all_faces,f)
+    end
+    return all_faces
 end
 
 """
@@ -92,18 +129,44 @@ end
 
 Find a Schnyder wood associated with the plane
 triangulation P, with given outer face
-
-The algorithm used is the shelling method
 """
 function schnyderwood(RNG::AbstractRNG,
                       P::PlanarMap{T};
                       outface::Face=face(P,1,neighbors(P,1)[1])) where T<: Integer
+    PWT = PartialWoodedTriangulation(P;outface=outface)
+    while !allfound(PWT)
+        v = rand(RNG,PWT.shellcandidates)
+        shell!(PWT,v)
+    end
+    return WoodedTriangulation(PWT)
+end
+
+function schnyderwood(P::PlanarMap{T};
+                      outface::Face=face(P,1,neighbors(P,1)[1])) where T<: Integer
+      schnyderwood(Base.Random.globalRNG(),P,outface=outface)
+end
+
+struct PartialWoodedTriangulation{T<:Integer}
+    P::PlanarMap{T}
+    bluetree::Dict{T,T}
+    redtree::Dict{T,T}
+    greentree::Dict{T,T}
+    blueroot::T
+    redroot::T
+    greenroot::T
+    discovered::Set{T}
+    shellcandidates::Set{T}
+    fneighborcount::Vector{Int64}
+end
+
+function PartialWoodedTriangulation(P::PlanarMap{T};
+                        outface::Face=face(P,1,neighbors(P,1)[1])) where T<:Integer
     blueroot, greenroot, redroot = outface # bgr order not a mistake
     bluetree = Dict{T,T}()
     redtree = Dict{T,T}()
     greentree = Dict{T,T}()
-    last_discovered = blueroot
     discovered = Set([blueroot])
+    shellcandidates = Set([blueroot])
     affectedvertices = Set{T}()
     # number of frontier neighbors of each vertex in P
     fneighborcount = zeros(Int64,length(P))
@@ -112,55 +175,71 @@ function schnyderwood(RNG::AbstractRNG,
             fneighborcount[w] += 1
         end
     end
-    activevertices = Set([blueroot])
-    while length(discovered) < length(P) - 2
-        v = rand(RNG,activevertices)
-        push!(discovered,v)
-        if v == blueroot
-            N = collect(rotate(neighbors(P,v),redroot))
-        else
-            N = downwardneighbors(neighbors(P,v),bluetree[v])
-            filter!(x->x ∉ discovered,N)
-            redtree[v] = N[1]
-            greentree[v] = N[end]
-        end
-        for w in N[2:end-1]
-            bluetree[w] = v
-        end
-        # update frontier neighbor count
-        for w in neighbors(P,v)
-            fneighborcount[w] -= 1
+    PartialWoodedTriangulation(
+    P,bluetree,redtree,greentree,blueroot,redroot,greenroot,
+    discovered,shellcandidates,fneighborcount
+    )
+end
+
+function WoodedTriangulation(PWT::PartialWoodedTriangulation)
+    if !allfound(PWT)
+        error("Partial wooded triangulation not complete")
+    end
+    WoodedTriangulation(PWT.P,
+            map(RootedTree,(PWT.bluetree, PWT.redtree, PWT.greentree),
+                           (PWT.blueroot, PWT.redroot, PWT.greenroot))...)
+end
+
+function allfound(PWT::PartialWoodedTriangulation)
+    length(PWT.P) == length(PWT.discovered) + 2
+end
+
+function shell!(PWT::PartialWoodedTriangulation{T},v::T) where T<:Integer
+    push!(PWT.discovered,v)
+    affectedvertices = Set{T}()
+    if v == PWT.blueroot
+        N = collect(rotate(neighbors(PWT.P,v),PWT.redroot))
+    else
+        N = downwardneighbors(neighbors(PWT.P,v),PWT.bluetree[v])
+        filter!(x->x ∉ PWT.discovered,N)
+        PWT.redtree[v] = N[1]
+        PWT.greentree[v] = N[end]
+    end
+    for w in N[2:end-1]
+        PWT.bluetree[w] = v
+    end
+    # update frontier neighbor count
+    for w in neighbors(PWT.P,v)
+        PWT.fneighborcount[w] -= 1
+        push!(affectedvertices,w)
+    end
+    for u in N[2:end-1]
+        for w in neighbors(PWT.P,u)
+            PWT.fneighborcount[w] += 1
             push!(affectedvertices,w)
         end
-        for u in N[2:end-1]
-            for w in neighbors(P,u)
-                fneighborcount[w] += 1
-                push!(affectedvertices,w)
-            end
-        end
-        # update active vertex list
-        pop!(activevertices,v)
-        for w in N
-            if fneighborcount[w] == 2 && w ≠ redroot && w ≠ greenroot
-                push!(activevertices,w)
-            end
-        end
-        for w in affectedvertices
-            if fneighborcount[w] ≠ 2 && w in activevertices
-                pop!(activevertices,w)
-            end
+    end
+    # update active vertex list
+    pop!(PWT.shellcandidates,v)
+    for w in N
+        if PWT.fneighborcount[w] == 2 && w ≠ PWT.redroot && w ≠ PWT.greenroot
+            push!(PWT.shellcandidates,w)
         end
     end
-    return WoodedTriangulation(P,
-            map(RootedTree,(bluetree, redtree, greentree),
-                            (blueroot, redroot, greenroot))...)
+    for w in affectedvertices
+        if PWT.fneighborcount[w] ≠ 2 && w in PWT.shellcandidates
+            pop!(PWT.shellcandidates,w)
+        end
+    end
+    if 0 in PWT.shellcandidates
+        error("hey!")
+    end
 end
 
-function schnyderwood(P::PlanarMap{T};
-                      outface::Face=face(P,1,neighbors(P,1)[1])) where T<: Integer
-      schnyderwood(Base.Random.globalRNG(),P,outface=outface)
+function downwardneighbors(N::NeighborCycle{T},v::T) where T<:Integer
+    p = position(N,v)
+    N[to(p+1,p-1)]
 end
-
 
 """
     schnyder_red(WT::WoodedTriangulation)
@@ -195,9 +274,15 @@ function schnyder_coords(WT::WoodedTriangulation)
     greencoords = schnyder_green(WT)
     D = Dict(k=>(redcoords[k],greencoords[k]) for k in keys(redcoords))
     n = length(WT)
-    merge(D,Dict(blueroot(WT)=>(0,0),redroot(WT)=>(2n-5,0),greenroot(WT)=>(0,2n-5)))
+    merge!(D,Dict(blueroot(WT)=>(0,0),redroot(WT)=>(2n-5,0),greenroot(WT)=>(0,2n-5)))
+    [D[k] for k=1:length(D)]
 end
 
+"""
+    schnyderaverage(P::PlanarMap,
+                    outface::Face,
+                    n::Integer=100)
+"""
 function schnyderaverage(RNG::AbstractRNG,
                          P::PlanarMap{T};
                          outface::Face=face(P,1,neighbors(P,1)[1]),
@@ -211,6 +296,33 @@ function schnyderaverage(RNG::AbstractRNG,
     [a./n for a in A]
 end
 
-function schnyderaverage(P::PlanarMap;kwargs...) 
+function schnyderaverage(P::PlanarMap;kwargs...)
     schnyderaverage(Base.Random.globalRNG(),P;kwargs...)
 end
+
+"""
+Non-mutating version of shell!
+"""
+function shell(P::PartialWoodedTriangulation{T},v::T) where T<:Integer
+    Q = deepcopy(P)
+    shell!(Q,v)
+    Q
+end
+
+function allwoods(PWT::PartialWoodedTriangulation)
+    if allfound(PWT)
+        WoodedTriangulation[WoodedTriangulation(PWT)]
+    else
+        vcat([allwoods(shell(PWT,v)) for v in copy(PWT.shellcandidates)]...)
+    end
+end
+
+function allwoods(P::PlanarMap;
+                  outface::Face=face(P,1,neighbors(P,1)[1]))
+    allwoods(PartialWoodedTriangulation(P;outface=outface))
+end
+
+#import Base.+
+#+(t::Tuple,u::Tuple) = t .+ u
+#/(t::Tuple,r::Real) = t ./ r
+#*(t::Tuple,r::Real) = t .* r

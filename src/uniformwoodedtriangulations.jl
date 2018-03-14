@@ -1,10 +1,4 @@
 
-struct ColoredEdge
-    tail::Int64
-    head::Int64
-    color::String
-end
-
 #--------------------------------------------------------
 
 function sample(RNG::AbstractRNG,w::Vector)
@@ -103,48 +97,6 @@ pair_dyck_paths(n::Integer;kwargs...) =
 import Base: keys, getindex
 keys(R::RootedTree) = keys(R.ancestors)
 getindex(R::RootedTree,k) = getindex(R.ancestors,k)
-
-function edges(WT::WoodedTriangulation)
-    all_edges = Tuple{Int64,Int64,String}[]
-    for (d,c) in zip((WT.bluetree,WT.redtree,WT.greentree),(:blue,:red,:green))
-        append!(all_edges,sort([[(k,d[k],c) for k in keys(d)];
-                                [(d[k],k,c) for k in keys(d)]]))
-    end
-    return all_edges
-end
-
-function colorededges(WT::WoodedTriangulation)
-    all_edges = ColoredEdge[]
-    for (d,c) in zip((WT.bluetree,WT.redtree,WT.greentree),(:blue,:red,:green))
-        append!(all_edges,[ColoredEdge(k,d[k],c) for k in keys(d)]);
-    end
-    return all_edges
-end
-
-function faces(WT::WoodedTriangulation)
-    n = length(WT.M)-3
-    colors = Dict([((a,b),c) for (a,b,c) in edges(WT)]);
-    all_edges = edges(WT.M)
-    found_edges = zeros(Bool,length(all_edges))
-    all_faces = Array{Int64,1}[]
-    (u,v) = (n+1,1)
-    while sum(found_edges) < length(found_edges)
-        if colors[(u,v)] == :blue
-            (u,v) = v,cw(WT.M,v,u)
-        else
-            (u,v) = u,cw(WT.M,u,v)
-        end
-        if found_edges[findfirst(all_edges,(u,v))]
-            continue
-        end
-        f = face(WT.M,u,v)
-        for e in zip(f[1:end-1],f[2:end])
-            found_edges[findfirst(all_edges,e)] = true
-        end
-        push!(all_faces,f)
-    end
-    return [Face(f[1:end-1]) for f in all_faces]
-end
 
 function add_red_tree(M::PlanarMap,
                       bluetree::Dict{Int64,Int64},
