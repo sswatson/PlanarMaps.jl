@@ -9,7 +9,8 @@ export NeighborCycle, CyclicRange, to,
        PlanarMap,
        Face,
        rotate, over,
-       cw, ccw, ccwrange, insertccw, insertcw, add_edge!, delete_edge!,
+       cw, ccw, ccwrange, insertccw, insertcw,
+       isedge, add_edge!, delete_edge!,
        edges, face, faces, neighbors,
        interiorfaces, outerface,
        triangulation,
@@ -35,7 +36,7 @@ mutable struct NeighborCycle{T<:Integer}
 end
 
 function remap!(N::NeighborCycle)
-    N.lookup = Dict(map(reverse,enumerate(N.elements)))
+    N.lookup = Dict(map(reverse,enumerate(N.elements)));
 end
 
 function NeighborCycle(elements::Vector)
@@ -93,11 +94,65 @@ function neighbors(P::PlanarMap,i::Integer)
 end
 
 """
-Add edge from `i` to `j` in the planar map `P`
+    edges(P::PlanarMap)
+
+Return a vector containing both `(a,b)` and `(b,a)`
+for every edge `(a,b)` in `P`
+"""
+function edges(P::PlanarMap)
+    vcat([[(u,v) for v in N.elements]
+                for (u,N) in enumerate(neighbors(P))]...)
+end
+
+struct Face{T<:Integer}
+    elements::Vector{T}
+end
+
+Face(args...) = Face([args...])
+
+function Base.show(io::IO,F::Face)
+    print(io,"Face(")
+    show(io,F.elements)
+    print(io,")")
+end
+
+function isedge(P::PlanarMap{T},
+                i::T,
+                j::T) where T<:Integer
+    j in neighbors(P,i)
+end
+
+"""
+Find a face which has (i,j) as a diagonal
+"""
+function containing_face(P::PlanarMap{T},
+                         i::T,
+                         j::T) where T<:Integer
+    for v in neighbors(P,i)
+        F = Face(P,i,v)
+        k = findfirst(F,j)
+        if k ≠ 0
+            return F
+        end
+    end
+    error("No face found which has a diagonal ($i,$j)")
+end
+
+"""
+    add_edge!(P::PlanarMap,i::Integer,j::Integer,F::Face)
+    add_edge!(P::PlanarMap,i::Integer,j::Integer)
+
+Add edge from `i` to `j` through the face `F`
+in the planar map `P`. If `F` is not given, the
+face discovered first in the `NeighborCycle` of `i`
+will be used
 """
 function add_edge!(P::PlanarMap{T},
                    i::T,
                    j::T) where T<:Integer
+    if isedge(P,i,j)
+        error("($i,$j) already an edge of $P")
+    end
     for v in neighbors(P,i)
         F = face(P,i,v)
         k = findfirst(F,j)
@@ -109,8 +164,27 @@ function add_edge!(P::PlanarMap{T},
     end
 end
 
-import Base.filter!
-Base.filter!(f::Function,N::NeighborCycle) = Base.filter!(f,N.elements)
+function add_edge!(P::PlanarMap{T},
+                   i::T,
+                   j::T,
+                   F::Face) where T<:Integer
+    if isedge(P,i,j)
+        error("($i,$j) already an edge of $P")
+    end
+    k = findfirst(F,i)
+    l = findfirst(F,j)
+    if k == 0 || l == 0
+        error("$i and $j are not both in $F")
+    end
+    P.nbs[i] = insertccw(P.nbs[i],F[k+1],j)
+    P.nbs[j] = insertccw(P.nbs[j],F[l+1],i);
+end
+
+import Base: filter, filter!
+Base.filter!(f::Function,N::NeighborCycle) = (Base.filter!(f,N.elements); remap!(N))
+Base.filter(f::Function,N::NeighborCycle) = NeighborCycle(filter(f,N.elements))
+Base.filter!(f::Function,F::Face) = Base.filter!(f,F.elements)
+Base.filter(f::Function,F::Face) = Base.filter(f,F.elements)
 
 function delete_edge!(P::PlanarMap{T},
                       i::T,
@@ -210,27 +284,6 @@ cw(P::PlanarMap{T},u::T,v::T) where T<:Integer =
                         over(neighbors(P,u),v,-1)
 ccw(P::PlanarMap{T},u::T,v::T) where T<:Integer =
                         over(neighbors(P,u),v,1)
-
-"""
-    edges(P::PlanarMap)
-
-Return a vector containing both `(a,b)` and `(b,a)`
-for every edge `(a,b)` in `P`
-"""
-function edges(P::PlanarMap)
-    vcat([[(u,v) for v in N.elements]
-                for (u,N) in enumerate(neighbors(P))]...)
-end
-
-struct Face{T<:Integer}
-    elements::Vector{T}
-end
-
-function Base.show(io::IO,F::Face)
-    print(io,"Face(")
-    show(io,F.elements)
-    print(io,")")
-end
 
 struct CyclicRange
     start::Int64
@@ -370,6 +423,20 @@ function poprand!(G::AbstractRNG,collection)
     splice!(collection,rand(G,1:length(collection)))
 end
 
+function facewithcorners(P::PlanarMap{T},blue::T,green::T,red::T) where T<:Integer
+    for v in neighbors(P,blue)
+        F = face(P,blue,v)
+        k = findfirst(F.elements,green)
+        # look for a red *after* the green already found:
+        l = k+findfirst(F.elements[k+1:end],red)
+        if 1 < k < l
+            return F
+        end
+    end
+    error("No face containing $blue, $green, $red")
+end
+
+
 poprand!(collection) = poprand(Base.Random.globalRNG(),collection)
 
 """
@@ -380,9 +447,19 @@ by adding edges
 """
 function triangulation(RNG::AbstractRNG,
                        P::PlanarMap;
-                       outeredge=(1,neighbors(P,1)[1]))
+                       outeredge=(1,neighbors(P,1)[1]),
+                       corners=nothing)
     T = deepcopy(P)
-    facelist = [F for F in allfaces(P;outeredge=outeredge) if length(F) > 3]
+    if corners ≠ nothing
+        F = PlanarMaps.facewithcorners(T,corners...)
+        for (a,b) in edges(Face(corners...))
+            if !isedge(T,a,b)
+                add_edge!(T,a,b,F)
+            end
+        end
+        outeredge=corners[1:2]
+    end
+    facelist = [F for F in allfaces(T;outeredge=outeredge) if length(F) > 3]
     while !isempty(facelist)
         F = poprand!(RNG,facelist)
         (i,j) = find_drawable_edge(T,F)

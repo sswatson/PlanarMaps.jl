@@ -6,9 +6,11 @@ end
 
 function EmbeddedMap(RNG::AbstractRNG,
                      P::PlanarMap;
-                     outeredge=(1,neighbors(P,1)[1]))
-    T = triangulation(RNG,P,outeredge=outeredge)
-    WT = schnyderwood(RNG,T,outface=face(T,outeredge...))
+                     outeredge=(1,neighbors(P,1)[1]),
+                     corners=nothing)
+    T = triangulation(RNG,P,outeredge=outeredge,corners=corners)
+    outface = corners ≠ nothing ? Face(corners...) : face(T,outeredge...)
+    WT = schnyderwood(RNG,T,outface=outface)
     n = length(P)
     map((a,b)->ϕ(a,b,n),EmbeddedMap(P,schnyder_coords(WT)))
 end
@@ -107,7 +109,7 @@ function draw(E::EmbeddedMap;
     end
     if drawlabels
         append!(grlist,vcat([[AsyPlots.Circle(E.locs[i],
-                                              s*labelpen(G,i).fontsize/650,
+                                              s*labelpen(G,i).fontsize/500,
                                      pen=diskpen(G,i),
                                      fillpen=pointpen(G,i)),
                               AsyPlots.Label(string(i),E.locs[i];
@@ -119,8 +121,22 @@ function draw(E::EmbeddedMap;
     AsyPlots.Plot(grlist)
 end
 
-function draw(P::PlanarMap;outeredge=(1,neighbors(P,1)[1]),kwargs...)
-    draw(EmbeddedMap(P;outeredge=outeredge);kwargs...)
+"""
+    draw(P,outeredge,corners)
+
+Draw the planar map P with outer face either:
+    - the face to the left of the `outeredge`
+    - the face containing the sequence of vertices `corners`
+
+- `outeredge` is an ordered pair
+- `corners` is either `nothing` (to indicate deference to
+    specification via `outeredge`) or an ordered triple
+"""
+function draw(P::PlanarMap;
+              outeredge=(1,neighbors(P,1)[1]),
+              corners=nothing,
+              kwargs...)
+    draw(EmbeddedMap(P;outeredge=outeredge,corners=corners);kwargs...)
 end
 
 function draw(WT::WoodedTriangulation;

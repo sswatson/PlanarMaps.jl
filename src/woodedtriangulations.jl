@@ -57,6 +57,8 @@ struct WoodedTriangulation{T<:Integer}
     greentree::RootedTree{T}
 end
 
+PlanarMap(W::WoodedTriangulation) = W.P
+
 length(WT::WoodedTriangulation) = length(WT.P)
 
 function show(io::IO,WT::WoodedTriangulation)
@@ -309,20 +311,37 @@ function shell(P::PartialWoodedTriangulation{T},v::T) where T<:Integer
     Q
 end
 
-function allwoods(PWT::PartialWoodedTriangulation)
+"""
+    allwoods(PWT::PartialWoodedTriangulation,C::Channel)
+
+Send to `C` a sequence of all `WoodedTriangulation`s on `P`
+obtained by further shelling `PWT`
+"""
+function allwoods(PWT::PartialWoodedTriangulation,C::Channel)
     if allfound(PWT)
-        WoodedTriangulation[WoodedTriangulation(PWT)]
+        put!(C,WoodedTriangulation(PWT))
     else
-        vcat([allwoods(shell(PWT,v)) for v in copy(PWT.shellcandidates)]...)
+        for v in copy(PWT.shellcandidates)
+            allwoods(shell(PWT,v),C)
+        end
     end
 end
 
-function allwoods(P::PlanarMap;
-                  outface::Face=face(P,1,neighbors(P,1)[1]))
-    allwoods(PartialWoodedTriangulation(P;outface=outface))
-end
+"""
+    allwoods(P::PlanarMap,C::Channel)
 
-#import Base.+
-#+(t::Tuple,u::Tuple) = t .+ u
-#/(t::Tuple,r::Real) = t ./ r
-#*(t::Tuple,r::Real) = t .* r
+Send a sequence of all `WoodedTriangulation`s on `P`
+to the channel `C`
+
+# Examples:
+
+```julia
+# Count the number of Schnyder woods on a
+# a randomly sampled wooded triangulation of size 10
+sum(1 for W in Channel(C->allwoods(PlanarMap(UWT(10)),C)))
+```
+"""
+function allwoods(P::PlanarMap,C::Channel;
+                  outface::Face=face(P,1,neighbors(P,1)[1]))
+    allwoods(PartialWoodedTriangulation(P;outface=outface),C)
+end
