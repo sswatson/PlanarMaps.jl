@@ -1,6 +1,7 @@
 name = "PlanarMaps"
 uuid = "291fd964-e446-5d75-9412-e8e0eb420fa7"
 authors = ["Samuel S. Watson <sswatson@brown.edu>"]
+version = "0.1.1"
 
 [deps]
 AsyPlots = "77e5a97a-5ef9-58df-9d21-21957d92d960"
