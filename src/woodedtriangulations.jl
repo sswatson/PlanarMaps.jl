@@ -38,7 +38,7 @@ function backsum(T::RootedTree{S},f::Dict{S,U}) where {S<:Integer, U<:Real}
         if k in keys(D)
             return D[k]
         else
-            D[k] = f[k] + reduce(+,0,updatevertex!(v) for v in A[k])
+            D[k] = f[k] + reduce(+, [updatevertex!(v) for v in A[k]], init = 0)
         end
         D[k]
     end
@@ -132,7 +132,7 @@ end
 Find a Schnyder wood associated with the plane
 triangulation P, with given outer face
 """
-function schnyderwood(RNG::AbstractRNG,
+function schnyderwood(RNG::Random.AbstractRNG,
                       P::PlanarMap{T};
                       outface::Face=face(P,1,neighbors(P,1)[1])) where T<: Integer
     PWT = PartialWoodedTriangulation(P;outface=outface)
@@ -145,7 +145,7 @@ end
 
 function schnyderwood(P::PlanarMap{T};
                       outface::Face=face(P,1,neighbors(P,1)[1])) where T<: Integer
-      schnyderwood(Base.Random.globalRNG(),P,outface=outface)
+      schnyderwood(Random.GLOBAL_RNG,P,outface=outface)
 end
 
 struct PartialWoodedTriangulation{T<:Integer}
@@ -285,7 +285,7 @@ end
                     outface::Face,
                     n::Integer=100)
 """
-function schnyderaverage(RNG::AbstractRNG,
+function schnyderaverage(RNG::Random.AbstractRNG,
                          P::PlanarMap{T};
                          outface::Face=face(P,1,neighbors(P,1)[1]),
                          n::Integer=100) where T<: Integer
@@ -299,7 +299,7 @@ function schnyderaverage(RNG::AbstractRNG,
 end
 
 function schnyderaverage(P::PlanarMap;kwargs...)
-    schnyderaverage(Base.Random.globalRNG(),P;kwargs...)
+    schnyderaverage(Random.GLOBAL_RNG,P;kwargs...)
 end
 
 """

@@ -2,8 +2,10 @@ __precompile__(true)
 
 module PlanarMaps
 
-import AsyPlots,
-       DataStructures
+import Random,
+       AsyPlots,
+       DataStructures,
+       SpecialFunctions
 
 export NeighborCycle, CyclicRange, to,
        PlanarMap,
@@ -44,7 +46,7 @@ function NeighborCycle(elements::Vector)
 end
 
 import Base.position
-function position(N::NeighborCycle{T},u::T) where T<:Integer
+function position(N::NeighborCycle{T}, u::T) where T<:Integer
     N.lookup[u]
 end
 
@@ -54,17 +56,17 @@ end
 Return the `NeighborCycle` obtained by inserting the vertex
 `v` counterclockwise of the vertex `u` in `N`
 """
-function insertccw(N::NeighborCycle{T},u::T,v::T) where T<:Integer
+function insertccw(N::NeighborCycle{T}, u::T, v::T) where T<:Integer
     nbs = copy(N.elements)
-    k = position(N,u)
-    insert!(nbs,k+1,v)
+    k = position(N, u)
+    insert!(nbs, k+1, v)
     NeighborCycle(nbs)
 end
 
-function insertcw(N::NeighborCycle{T},u::T,v::T) where T<:Integer
+function insertcw(N::NeighborCycle{T}, u::T, v::T) where T<:Integer
     nbs = copy(N.elements)
-    k = position(N,u)
-    insert!(nbs,k,v)
+    k = position(N, u)
+    insert!(nbs, k, v)
     NeighborCycle(nbs)
 end
 
@@ -130,7 +132,7 @@ function containing_face(P::PlanarMap{T},
                          j::T) where T<:Integer
     for v in neighbors(P,i)
         F = Face(P,i,v)
-        k = findfirst(F,j)
+        k = findfirst(isequal(j), F)
         if k ≠ 0
             return F
         end
@@ -155,10 +157,10 @@ function add_edge!(P::PlanarMap{T},
     end
     for v in neighbors(P,i)
         F = face(P,i,v)
-        k = findfirst(F,j)
-        if k ≠ 0
-            P.nbs[i] = insertccw(P.nbs[i],F[2],j)
-            P.nbs[j] = insertccw(P.nbs[j],F[k+1],i)
+        k = findfirst(isequal(j), F)
+        if !isa(k, Nothing)
+            P.nbs[i] = insertccw(P.nbs[i], F[2], j)
+            P.nbs[j] = insertccw(P.nbs[j], F[k+1], i)
             return
         end
     end
@@ -171,8 +173,8 @@ function add_edge!(P::PlanarMap{T},
     if isedge(P,i,j)
         error("($i,$j) already an edge of $P")
     end
-    k = findfirst(F,i)
-    l = findfirst(F,j)
+    k = findfirst(isequal(i), F)
+    l = findfirst(isequal(j), F)
     if k == 0 || l == 0
         error("$i and $j are not both in $F")
     end
@@ -293,7 +295,7 @@ end
 to(a,b) = CyclicRange(a,b)
 
 length(F::Face) = length(F.elements)
-import Base: getindex, start, next, done, endof
+import Base: getindex, iterate, lastindex
 Base.getindex(F::Face,i::Integer) = Base.getindex(F.elements,mod1(i,length(F)))
 Base.getindex(F::Face,r::UnitRange) = Base.getindex(F.elements,r)
 function Base.getindex(F::Face,C::CyclicRange)
@@ -314,15 +316,13 @@ function Base.getindex(N::NeighborCycle,C::CyclicRange)
 end
 Base.getindex(N::PlanarMaps.NeighborCycle{Int64},
               r::UnitRange{Int64}) = Base.getindex(N.elements,r)
-Base.start(F::Face) = Base.start(F.elements)
-Base.next(F::Face,i::Integer) = Base.next(F.elements,i)
-Base.done(F::Face,i::Integer) = Base.done(F.elements,i)
-Base.endof(F::Face) = Base.endof(F.elements)
+Base.iterate(F::Face) = Base.iterate(F.elements)
+Base.iterate(F::Face,i::Integer) = Base.iterate(F.elements,i)
+Base.lastindex(F::Face) = Base.lastindex(F.elements)
 Base.getindex(N::NeighborCycle,i::Integer) = Base.getindex(N.elements,mod1(i,length(N)))
-Base.start(N::NeighborCycle) = Base.start(N.elements)
-Base.next(N::NeighborCycle,i::Integer) = Base.next(N.elements,i)
-Base.done(N::NeighborCycle,i::Integer) = Base.done(N.elements,i)
-Base.endof(N::NeighborCycle) = Base.endof(N.elements)
+Base.iterate(N::NeighborCycle) = Base.iterate(N.elements)
+Base.iterate(N::NeighborCycle,i::Integer) = Base.iterate(N.elements, i)
+Base.lastindex(N::NeighborCycle) = Base.lastindex(N.elements)
 
 
 """
@@ -350,9 +350,12 @@ function rotate(F::Face,k::Integer)
     return circshift(F.elements,-(k-1))
 end
 
+import Base.keys
+keys(F::Face) = keys(F.elements)
+
 function ==(F::Face,G::Face)
     a = first(F)
-    places = find(x->x==a,G)
+    places = findall(isequal(a), G)
     any(rotate(G,p) == F.elements for p in places)
 end
 
@@ -366,7 +369,7 @@ end
 
 Return a vector of faces of `P`
 """
-function faces(RNG::AbstractRNG,
+function faces(RNG::Random.AbstractRNG,
                P::PlanarMap;
                outeredge=(1,neighbors(P,1)[1]),
                rotate=cw)
@@ -387,9 +390,9 @@ function faces(RNG::AbstractRNG,
     return FaceList(int_faces,outerface)
 end
 
-faces(P::PlanarMap;kwargs...) = faces(MersenneTwister(0),P;kwargs...)
+faces(P::PlanarMap;kwargs...) = faces(Random.MersenneTwister(0),P;kwargs...)
 
-function allfaces(RNG::AbstractRNG,
+function allfaces(RNG::Random.AbstractRNG,
                   P::PlanarMap;
                   outeredge=(1,neighbors(P,1)[1]),
                   rotate=cw)
@@ -398,7 +401,7 @@ function allfaces(RNG::AbstractRNG,
 end
 
 allfaces(P::PlanarMap;kwargs...) =
-            allfaces(MersenneTwister(0),P;kwargs...)
+            allfaces(Random.MersenneTwister(0),P;kwargs...)
 
 function interiorfaces(L::FaceList)
     L.interiorfaces
@@ -414,21 +417,21 @@ function find_drawable_edge(P::PlanarMap,F::Face)
     end
     for (i,v) in enumerate(F)
         j = findfirst(x-> x≠v && x∉neighbors(P,v), F)
-        j > 0 && return (i,j)
+        !isa(j,Nothing) && return (i,j)
     end
     error("No drawable edge found")
 end
 
-function poprand!(G::AbstractRNG,collection)
+function poprand!(G::Random.AbstractRNG,collection)
     splice!(collection,rand(G,1:length(collection)))
 end
 
 function facewithcorners(P::PlanarMap{T},blue::T,green::T,red::T) where T<:Integer
     for v in neighbors(P,blue)
         F = face(P,blue,v)
-        k = findfirst(F.elements,green)
+        k = findfirst(isequal(green), F.elements)
         # look for a red *after* the green already found:
-        l = k+findfirst(F.elements[k+1:end],red)
+        l = k+findfirst(isequal(red), F.elements[k+1:end])
         if 1 < k < l
             return F
         end
@@ -437,7 +440,7 @@ function facewithcorners(P::PlanarMap{T},blue::T,green::T,red::T) where T<:Integ
 end
 
 
-poprand!(collection) = poprand(Base.Random.globalRNG(),collection)
+poprand!(collection) = poprand(Random.GLOBAL_RNG,collection)
 
 """
     triangulation(P::PlanarMap)
@@ -445,7 +448,7 @@ poprand!(collection) = poprand(Base.Random.globalRNG(),collection)
 Find a simple plane triangulation obtained from P
 by adding edges
 """
-function triangulation(RNG::AbstractRNG,
+function triangulation(RNG::Random.AbstractRNG,
                        P::PlanarMap;
                        outeredge=(1,neighbors(P,1)[1]),
                        corners=nothing)
@@ -472,7 +475,7 @@ function triangulation(RNG::AbstractRNG,
 end
 
 function triangulation(P::PlanarMap;kwargs...)
-    triangulation(MersenneTwister(0),P;kwargs...)
+    triangulation(Random.MersenneTwister(0),P;kwargs...)
 end
 
 import Base.in

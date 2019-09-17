@@ -1,7 +1,7 @@
 
 #--------------------------------------------------------
 
-function sample(RNG::AbstractRNG,w::Vector)
+function sample(RNG::Random.AbstractRNG,w::Vector)
     w /= sum(w)
     p = rand(RNG)
     runningsum = 0
@@ -13,10 +13,12 @@ function sample(RNG::AbstractRNG,w::Vector)
     end
 end
 
-sample(w::Vector) = sample(Base.Random.globalRNG(),w)
+sample(w::Vector) = sample(Random.globalRNG(),w)
 
 ###---- FUNCTIONS FOR GENERATING CONDITIONED RANDOM WALK ----------
 
+lgamma(x) = first(SpecialFunctions.logabsgamma(x))
+lbinom(x) = first(SpecialFunctions.logabsbinom(x))
 lbinom(n,k) = lgamma(n+1) - lgamma(k+1) - lgamma(n-k+1)
 p0(a,c,n::BigInt) = mod(n+c-a,2) ≠ 0 ? 0.0 : exp(lbinom(n,(n+c-a)/2) + n * log(1/2))
 p0float(a,c,n) = exp(lbinom(n,(n+c-a)/2) + n * log(1/2))
@@ -43,12 +45,12 @@ function transweights(a,b,n)
     return normalize([q(i,j,n) for i=a-1:2:a+1, j=b-1:2:b+1])
 end
 
-function takestep(RNG::AbstractRNG,a,b,n)
+function takestep(RNG::Random.AbstractRNG, a, b, n)
     return [(i,j) for j=b-1:2:b+1 for i=a-1:2:a+1][
                             sample(RNG,transweights(a,b,n)[:])]
 end
 
-takestep(a,b,n) = takestep(Base.Random.globalRNG(),a,b,n)
+takestep(a,b,n) = takestep(Random.GLOBAL_RNG,a,b,n)
 
 function contour_to_tree(v::Array{Int64,1})
     n = div(length(v)-1,2)
@@ -72,7 +74,7 @@ function contour_to_tree(v::Array{Int64,1})
     return PlanarMap(map(reverse,nbs)), bluetree, heads
 end
 
-function pair_dyck_paths(RNG::AbstractRNG,
+function pair_dyck_paths(RNG::Random.AbstractRNG,
                          n::Integer;
                          verbose=false)
     X = Int64[1]
@@ -83,13 +85,13 @@ function pair_dyck_paths(RNG::AbstractRNG,
         push!(X,a)
         push!(Y,b)
     end
-    X = X-1
-    Y = Y-3
-    return X,Y
+    X = X .- 1
+    Y = Y .- 3
+    return X, Y
 end
 
 pair_dyck_paths(n::Integer;kwargs...) =
-    pair_dyck_paths(Base.Random.globalRNG(),n)
+    pair_dyck_paths(Random.GLOBAL_RNG,n)
 #----------------------------------------------------
 
 #--- FUNCTIONS FOR GENERATING WOODS -----------------
@@ -108,7 +110,7 @@ function add_red_tree(M::PlanarMap,
     tails = Int64[]
     num_ones = 0
     redtree = Dict{Int64,Int64}()
-    tails = cumsum(diff(Y).==1)[find(diff(Y) .== -1)]
+    tails = cumsum(diff(Y).==1)[findall(diff(Y) .== -1)]
     tails = [t == n ? n+2 : t+1 for t in tails]
     unmatchedHeadInds = Set(1:length(heads))
     for tail in tails
@@ -163,8 +165,8 @@ function rotate(a::Array{Int64,1},n::Integer)
 end
 
 import Base.getindex, Base.findfirst
-getindex(Z::Base.Iterators.Zip2,k::Integer) = (Z.a[k],Z.b[k])
-findfirst(C::Face,t::Tuple) = findfirst(pairs(C),t)
+getindex(Z::Base.Iterators.Zip,k::Integer) = (Z.a[k],Z.b[k])
+findfirst(C::Face,t::Tuple) = findfirst(isequal(t),pairs(C))
 
 function add_green_tree(M::PlanarMap,
                         bluetree::Dict{Int64,Int64},
@@ -177,7 +179,7 @@ function add_green_tree(M::PlanarMap,
     # connect edges on left side of the planar map to
     # the green root:
     F = outerface(FL)
-    leftedges = F[1:findfirst(F.elements,n+2)-1]
+    leftedges = F[1:findfirst(isequal(n+2), F.elements)-1]
     for (i,w) in enumerate(leftedges[2:end])
         greentree[w] = n+3
         nbs[w] = insertcw(nbs[w],leftedges[i],n+3)
@@ -193,7 +195,7 @@ function add_green_tree(M::PlanarMap,
             v, prv, nxt = find_split(F,bluetree,redtree)
             # idx stores index in the neighbor list of v
             # where incoming green edges should be inserted
-            fc = rotate(F,findfirst(F,nxt))[2:end-1]
+            fc = rotate(F,findfirst(isequal(nxt), F))[2:end-1]
             for (i,w) in enumerate(fc[1:end-1])
                 greentree[w] = v
                 nbs[v] = insertcw(nbs[v],prv,w)
@@ -204,7 +206,7 @@ function add_green_tree(M::PlanarMap,
     return PlanarMap(nbs), greentree
 end
 
-function UWT(RNG::AbstractRNG,n::Integer)
+function UWT(RNG::Random.AbstractRNG,n::Integer)
     X,Y = pair_dyck_paths(RNG,2n)
     M, bluetree, heads = contour_to_tree(X)
     M, redtree = add_red_tree(M,bluetree,Y,heads)
@@ -217,7 +219,7 @@ function UWT(RNG::AbstractRNG,n::Integer)
                     (n+1,n+2,n+3))...)
 end
 
-UWT(n::Integer) = UWT(Base.Random.globalRNG(),n)
+UWT(n::Integer) = UWT(Random.GLOBAL_RNG,n)
 
 function descendants(d::Dict{Int64,Int64})
     n = maximum(keys(d))

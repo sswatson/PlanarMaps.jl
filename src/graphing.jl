@@ -4,7 +4,7 @@ struct EmbeddedMap{T<:Integer}
     locs::Array{<:Tuple{<:Real,<:Real}}
 end
 
-function EmbeddedMap(RNG::AbstractRNG,
+function EmbeddedMap(RNG::Random.AbstractRNG,
                      P::PlanarMap;
                      outeredge=(1,neighbors(P,1)[1]),
                      corners=nothing)
@@ -16,7 +16,7 @@ function EmbeddedMap(RNG::AbstractRNG,
 end
 
 EmbeddedMap(P::PlanarMap;kwargs...) =
-        EmbeddedMap(MersenneTwister(0),P;kwargs...)
+        EmbeddedMap(Random.MersenneTwister(0),P;kwargs...)
 
 length(E::EmbeddedMap) = length(E.P)
 
@@ -56,7 +56,7 @@ function GraphPenSet(;kwargs...)
             :diskpen=>AsyPlots.Pen(color="Black"),
             :labelpen=>AsyPlots.Pen(fontsize=12,color="White"),
             :edgepen=>AsyPlots.Pen(color="Navy",linewidth=1.2),
-            :facepen=>AsyPlots.Pen("LightBlue"),
+            :facepen=>AsyPlots.Pen(color="LightBlue"),
             :pointpens=>nothing,
             :diskpens=>nothing,
             :labelpens=>nothing,
@@ -71,7 +71,7 @@ for name in (:point,:disk,:label,:edge,:face)
     namepen = Symbol(string(name)*"pen")
     namepens = Symbol(string(name)*"pens")
     @eval function $namepen(G::GraphPenSet,k)
-        if method_exists(getindex,map(typeof,(G.$namepens,k)))
+        if hasmethod(getindex,map(typeof,(G.$namepens,k)))
             G.$namepens[k]
         elseif !isempty(methods(G.$namepens))
             G.$namepens(k)

@@ -1,5 +1,5 @@
 using PlanarMaps
-using Base.Test
+using Test
 
 # write your own tests here
 N = NeighborCycle([3,7,9,4])
