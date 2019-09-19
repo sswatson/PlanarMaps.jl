@@ -1,7 +1,7 @@
 name = "PlanarMaps"
 uuid = "291fd964-e446-5d75-9412-e8e0eb420fa7"
 authors = ["Samuel S. Watson <sswatson@brown.edu>"]
-version = "0.1.1"
+version = "0.1.0"
 
 [compat]
 julia = "1"
